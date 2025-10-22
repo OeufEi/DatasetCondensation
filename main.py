@@ -6,6 +6,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torchvision.utils import save_image
+from generalized_loss import GeneralizedLoss
 from utils import get_loops, get_dataset, get_network, get_eval_pool, evaluate_synset, get_daparam, match_loss, get_time, TensorDataset, epoch, DiffAugment, ParamDiffAug
 
 
@@ -196,7 +197,12 @@ def main():
                     loss_syn = criterion(output_syn, lab_syn)
                     gw_syn = torch.autograd.grad(loss_syn, net_parameters, create_graph=True)
 
-                    loss += match_loss(gw_syn, gw_real, args)
+
+                    ''' Flow '''
+                    flow_real = torch.cat([g.reshape(-1) for g in gw_real])
+                    flow_synth = torch.cat([g.reshape(-1) for g in gw_syn])
+                    flow_loss = GeneralizedLoss(vec_synth, vec_real)
+                    loss += 0.5 * match_loss(gw_syn, gw_real, args) 0.5 * flow_loss
 
                 optimizer_img.zero_grad()
                 loss.backward()
