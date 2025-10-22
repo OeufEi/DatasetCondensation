@@ -6,7 +6,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torchvision.utils import save_image
-from generalized_loss import GeneralizedLoss
+# from generalized_loss import GeneralizedLoss
 from utils import get_loops, get_dataset, get_network, get_eval_pool, evaluate_synset, get_daparam, match_loss, get_time, TensorDataset, epoch, DiffAugment, ParamDiffAug
 
 
@@ -199,10 +199,9 @@ def main():
 
 
                     ''' Flow '''
-                    flow_real = torch.cat([g.reshape(-1) for g in gw_real])
-                    flow_synth = torch.cat([g.reshape(-1) for g in gw_syn])
-                    flow_loss = GeneralizedLoss(vec_synth, vec_real)
-                    loss += 0.5 * match_loss(gw_syn, gw_real, args) + 0.5 * flow_loss
+                    x0_batch, x1_batch = sample_real_pairs(loader_real, batch_size_for_cfm)
+                    loss_cfm = compute_cfm_surrogate_loss(synth_images, synth_labels, (x0_batch, x1_batch), model, args)
+                    loss += 0.5 * match_loss(gw_syn, gw_real, args) + 0.5 * loss_cfm
 
                 optimizer_img.zero_grad()
                 loss.backward()
@@ -240,5 +239,6 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
 
