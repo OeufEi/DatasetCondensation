@@ -13,6 +13,19 @@ from networks import MLP, ConvNet, LeNet, AlexNet, AlexNetBN, VGG11, VGG11BN, Re
 import torch
 import torch.nn.functional as F
 
+def sample_real_pairs(loader, bs):
+    # loader yields (imgs, labels)
+    imgs, labels = next(iter(loader))
+    # Build x0 = imgs, and x1 = other images with same class (or different class)
+    # For same-class pairing:
+    x0 = imgs
+    x1 = imgs.clone()
+    # naive: shuffle within same batch until labels match
+    idx = torch.randperm(imgs.shape[0])
+    x1 = imgs[idx]
+    # if you want guaranteed same-class, build mapping by class in dataset offline and sample accordingly.
+    return x0[:bs], x1[:bs]
+
 def extract_features(model, x):
     """Return penultimate features (before final linear). 
     Assumes model returns logits; adapt to your network's forward if it returns (feat, logit)."""
@@ -718,5 +731,6 @@ AUGMENT_FNS = {
     'scale': [rand_scale],
     'rotate': [rand_rotate],
 }
+
 
 
