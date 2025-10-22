@@ -9,6 +9,76 @@ from torchvision import datasets, transforms
 from scipy.ndimage.interpolation import rotate as scipyrotate
 from networks import MLP, ConvNet, LeNet, AlexNet, AlexNetBN, VGG11, VGG11BN, ResNet18, ResNet18BN_AP, ResNet18BN
 
+# utils.py  (append)
+import torch
+import torch.nn.functional as F
+
+def extract_features(model, x):
+    """Return penultimate features (before final linear). 
+    Assumes model returns logits; adapt to your network's forward if it returns (feat, logit)."""
+    # Example for convnets: if model has attribute 'features' and 'fc' adjust accordingly.
+    # If model supports returning features, call that API. Replace if needed.
+    if hasattr(model, 'forward_features'):   # prefer explicit API if available
+        return model.forward_features(x)
+    # fallback: run forward, then detach last linear layer weights to get features
+    # Many nets define model.linear or model.fc; adjust here for your architecture.
+    # This fallback will vary — if your networks in repo support hooks, use hooks.
+    logits = model(x)
+    # if logits is tuple (feat, logit) handle it
+    if isinstance(logits, tuple) and len(logits) >= 2:
+        return logits[0]
+    # last-resort: use logits (not ideal)
+    return logits
+
+def compute_cfm_surrogate_loss(synth_images, synth_labels, real_pair_images, model, args):
+    """
+    synth_images: tensor [B_s, C, H, W]
+    synth_labels: tensor [B_s] (optional, may not be used)
+    real_pair_images: tuple (x0_batch, x1_batch) each [B_r, C, H, W] matched pairs
+    model: network used for feature extraction
+    args: expects args.lambda_cfm and args.cfm_mode ('mse' or 'nce'), optionally temperature
+    """
+    x0, x1 = real_pair_images  # assume paired by class or by desired conditioning
+    # put model in eval mode for feature extraction (no grad on model features used as targets)
+    was_training = model.training
+    model.eval()
+    with torch.no_grad():
+        f_x0 = extract_features(model, x0)  # [B_r, D]
+        f_x1 = extract_features(model, x1)  # [B_r, D]
+        target_dir = f_x1 - f_x0           # conditional direction in feature space
+
+    # features for synth images (these will be used for gradients, so keep grad)
+    model.train(was_training)
+    f_synth = extract_features(model, synth_images)  # [B_s, D]
+
+    # Map synth batch to same shape as target_dir. Simplest: randomly sample B_r targets
+    B_r = target_dir.shape[0]
+    B_s = f_synth.shape[0]
+    # tile/choose targets randomly
+    idx = torch.randint(0, B_r, (B_s,), device=f_synth.device)
+    selected_targets = target_dir[idx]   # [B_s, D]
+
+    # compute synthetic direction relative to a reference — easiest: use mean feature of real x0 as ref
+    # or use zeros (we only care about matching directions); here we use f_synth itself as "pred direction"
+    pred_dir = f_synth  # if you'd rather use (f_synth - f_x0_synth) you can compute f_x0_synth similarly
+
+    if args.cfm_mode == 'mse':
+        loss = F.mse_loss(pred_dir, selected_targets)
+    else:
+        # InfoNCE style: treat pred_dir as query, selected_targets as positive, other targets as negatives
+        T = getattr(args, 'cfm_temp', 0.07)
+        # build keys matrix
+        keys = target_dir  # [B_r, D]
+        # normalize
+        q = F.normalize(pred_dir, dim=1)        # [B_s, D]
+        k_pos = F.normalize(selected_targets, dim=1)
+        logits = q @ keys.t() / T               # [B_s, B_r]
+        # positive idx per query = idx
+        labels = idx.to(logits.device)
+        loss = F.cross_entropy(logits, labels)
+    return loss * args.lambda_cfm
+
+
 def get_dataset(dataset, data_path):
     if dataset == 'MNIST':
         channel = 1
@@ -648,4 +718,5 @@ AUGMENT_FNS = {
     'scale': [rand_scale],
     'rotate': [rand_rotate],
 }
+
 
