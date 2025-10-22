@@ -202,7 +202,7 @@ def main():
                     flow_real = torch.cat([g.reshape(-1) for g in gw_real])
                     flow_synth = torch.cat([g.reshape(-1) for g in gw_syn])
                     flow_loss = GeneralizedLoss(vec_synth, vec_real)
-                    loss += 0.5 * match_loss(gw_syn, gw_real, args) 0.5 * flow_loss
+                    loss += 0.5 * match_loss(gw_syn, gw_real, args) + 0.5 * flow_loss
 
                 optimizer_img.zero_grad()
                 loss.backward()
